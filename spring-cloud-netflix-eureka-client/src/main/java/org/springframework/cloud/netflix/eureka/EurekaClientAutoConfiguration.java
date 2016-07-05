@@ -22,6 +22,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
+import com.netflix.appinfo.HealthCheckHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.AutoConfigureAfter;
@@ -40,8 +41,10 @@ import org.springframework.cloud.client.CommonsClientAutoConfiguration;
 import org.springframework.cloud.client.actuator.HasFeatures;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
 import org.springframework.cloud.client.discovery.noop.NoopDiscoveryClientAutoConfiguration;
+import org.springframework.cloud.client.serviceregistry.ServiceRegistry;
 import org.springframework.cloud.commons.util.InetUtils;
 import org.springframework.cloud.context.scope.refresh.RefreshScope;
+import org.springframework.cloud.netflix.EurekaRegistration;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
@@ -76,16 +79,19 @@ import static org.springframework.cloud.commons.util.IdUtils.getDefaultInstanceI
 public class EurekaClientAutoConfiguration {
 
 	@Value("${server.port:${SERVER_PORT:${PORT:8080}}}")
-	int nonSecurePort;
+	private int nonSecurePort;
 
 	@Value("${management.port:${MANAGEMENT_PORT:${server.port:${SERVER_PORT:${PORT:8080}}}}}")
-	int managementPort;
+	private int managementPort;
 
 	@Value("${eureka.instance.hostname:${EUREKA_INSTANCE_HOSTNAME:}}")
-	String hostname;
+	private String hostname;
 
 	@Autowired
-	ConfigurableEnvironment env;
+	private ConfigurableEnvironment env;
+
+	@Autowired(required = false)
+	private HealthCheckHandler healthCheckHandler;
 
 	@Bean
 	public HasFeatures eurekaFeature() {
@@ -143,6 +149,16 @@ public class EurekaClientAutoConfiguration {
 	public DiscoveryClient discoveryClient(EurekaInstanceConfig config,
 			EurekaClient client) {
 		return new EurekaDiscoveryClient(config, client);
+	}
+
+	@Bean
+	public EurekaServiceRegistry eurekaServiceRegistry(EurekaClient eurekaClient) {
+		return new EurekaServiceRegistry(eurekaClient);
+	}
+
+	@Bean
+	public EurekaRegistration eurekaRegistration(CloudEurekaInstanceConfig instanceConfig, ApplicationInfoManager applicationInfoManager) {
+		return new EurekaRegistration(instanceConfig, applicationInfoManager, healthCheckHandler);
 	}
 
 	@Bean
