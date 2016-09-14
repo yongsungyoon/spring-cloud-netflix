@@ -17,24 +17,54 @@
 
 package org.springframework.cloud.netflix.eureka;
 
-import com.netflix.appinfo.InstanceInfo;
-import com.netflix.discovery.EurekaClient;
+import java.util.HashMap;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.springframework.aop.framework.Advised;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.BeansException;
 import org.springframework.cloud.client.serviceregistry.ServiceRegistry;
-import org.springframework.cloud.netflix.EurekaRegistration;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ApplicationContextAware;
+
+import com.netflix.appinfo.InstanceInfo;
+import com.netflix.discovery.EurekaClient;
 
 /**
  * @author Spencer Gibb
  */
-public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration> {
+public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration>, ApplicationContextAware {
 
 	private static final Log log = LogFactory.getLog(EurekaServiceRegistry.class);
+	private ApplicationContext context;
+	private CloudEurekaClient eurekaClient;
 
-	private final EurekaClient eurekaClient;
+	@Override
+	public void setApplicationContext(ApplicationContext context) throws BeansException {
+		this.context = context;
+	}
 
-	public EurekaServiceRegistry(EurekaClient eurekaClient) {
-		this.eurekaClient = eurekaClient;
+
+	CloudEurekaClient getEurekaClient() {
+		if (this.eurekaClient == null) {
+			EurekaClient client = this.context.getBean(EurekaClient.class);
+			try {
+				this.eurekaClient = getTargetObject(client, CloudEurekaClient.class);
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+		return this.eurekaClient;
+	}
+
+	@SuppressWarnings({"unchecked"})
+	protected <T> T getTargetObject(Object proxy, Class<T> targetClass) throws Exception {
+		if (AopUtils.isJdkDynamicProxy(proxy)) {
+			return (T) ((Advised) proxy).getTargetSource().getTarget();
+		} else {
+			return (T) proxy; // expected to be cglib proxy then, which is simply a specialized class
+		}
 	}
 
 	@Override
@@ -51,14 +81,14 @@ public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration
 				.setInstanceStatus(reg.getInstanceConfig().getInitialStatus());
 
 		if (reg.getHealthCheckHandler() != null) {
-			this.eurekaClient.registerHealthCheck(reg.getHealthCheckHandler());
+			getEurekaClient().registerHealthCheck(reg.getHealthCheckHandler());
 		}
 	}
 	
 	private void maybeInitializeClient(EurekaRegistration reg) {
 		// force initialization of possibly scoped proxies
 		reg.getApplicationInfoManager().getInfo();
-		this.eurekaClient.getApplications();
+		getEurekaClient().getApplications();
 	}
 	
 	@Override
@@ -72,6 +102,32 @@ public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration
 
 			reg.getApplicationInfoManager().setInstanceStatus(InstanceInfo.InstanceStatus.DOWN);
 		}
+	}
+
+	@Override
+	public void setStatus(EurekaRegistration registration, String status) {
+		InstanceInfo info = registration.getApplicationInfoManager().getInfo();
+
+		//TODO: howto deal with delete properly?
+		if ("RESET_OVERRIDE".equalsIgnoreCase(status)) {
+			getEurekaClient().cancelOverrideStatus(info);
+			return;
+		}
+
+		//TODO: howto deal with status types across discovery systems?
+		InstanceInfo.InstanceStatus newStatus = InstanceInfo.InstanceStatus.toEnum(status);
+		getEurekaClient().setStatus(newStatus, info);
+	}
+
+	@Override
+	public Object getStatus(EurekaRegistration registration) {
+		HashMap<String, Object> status = new HashMap<>();
+
+		InstanceInfo info = registration.getApplicationInfoManager().getInfo();
+		status.put("status", info.getStatus().toString());
+		status.put("overriddenStatus", info.getOverriddenStatus().toString());
+
+		return status;
 	}
 
 	public void close() {

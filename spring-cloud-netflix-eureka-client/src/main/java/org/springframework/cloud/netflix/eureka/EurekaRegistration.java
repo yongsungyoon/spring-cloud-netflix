@@ -15,17 +15,16 @@
  *
  */
 
-package org.springframework.cloud.netflix;
-
-import org.springframework.cloud.netflix.eureka.CloudEurekaInstanceConfig;
+package org.springframework.cloud.netflix.eureka;
 
 import com.netflix.appinfo.ApplicationInfoManager;
 import com.netflix.appinfo.HealthCheckHandler;
+import org.springframework.cloud.client.serviceregistry.Registration;
 
 /**
  * @author Spencer Gibb
  */
-public class EurekaRegistration {
+public class EurekaRegistration implements Registration {
 
 	private final CloudEurekaInstanceConfig instanceConfig;
 
