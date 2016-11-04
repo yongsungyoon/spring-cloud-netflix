@@ -155,8 +155,8 @@ public class EurekaClientAutoConfiguration {
 	}
 
 	@Bean
-	public EurekaRegistration eurekaRegistration(CloudEurekaInstanceConfig instanceConfig, ApplicationInfoManager applicationInfoManager) {
-		return new EurekaRegistration(instanceConfig, applicationInfoManager, healthCheckHandler);
+	public EurekaRegistration eurekaRegistration(EurekaClient eurekaClient, CloudEurekaInstanceConfig instanceConfig, ApplicationInfoManager applicationInfoManager) {
+		return new EurekaRegistration(eurekaClient, instanceConfig, applicationInfoManager, healthCheckHandler);
 	}
 
 	@Bean

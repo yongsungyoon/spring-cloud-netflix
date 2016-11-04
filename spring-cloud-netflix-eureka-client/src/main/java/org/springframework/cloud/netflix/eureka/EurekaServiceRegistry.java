@@ -21,51 +21,17 @@ import java.util.HashMap;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.springframework.aop.framework.Advised;
-import org.springframework.aop.support.AopUtils;
-import org.springframework.beans.BeansException;
+import org.springframework.cloud.client.serviceregistry.AutoServiceRegistration;
 import org.springframework.cloud.client.serviceregistry.ServiceRegistry;
-import org.springframework.context.ApplicationContext;
-import org.springframework.context.ApplicationContextAware;
 
 import com.netflix.appinfo.InstanceInfo;
-import com.netflix.discovery.EurekaClient;
 
 /**
  * @author Spencer Gibb
  */
-public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration>, ApplicationContextAware {
+public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration>, AutoServiceRegistration {
 
 	private static final Log log = LogFactory.getLog(EurekaServiceRegistry.class);
-	private ApplicationContext context;
-	private CloudEurekaClient eurekaClient;
-
-	@Override
-	public void setApplicationContext(ApplicationContext context) throws BeansException {
-		this.context = context;
-	}
-
-
-	CloudEurekaClient getEurekaClient() {
-		if (this.eurekaClient == null) {
-			EurekaClient client = this.context.getBean(EurekaClient.class);
-			try {
-				this.eurekaClient = getTargetObject(client, CloudEurekaClient.class);
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-		}
-		return this.eurekaClient;
-	}
-
-	@SuppressWarnings({"unchecked"})
-	protected <T> T getTargetObject(Object proxy, Class<T> targetClass) throws Exception {
-		if (AopUtils.isJdkDynamicProxy(proxy)) {
-			return (T) ((Advised) proxy).getTargetSource().getTarget();
-		} else {
-			return (T) proxy; // expected to be cglib proxy then, which is simply a specialized class
-		}
-	}
 
 	@Override
 	public void register(EurekaRegistration reg) {
@@ -81,14 +47,14 @@ public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration
 				.setInstanceStatus(reg.getInstanceConfig().getInitialStatus());
 
 		if (reg.getHealthCheckHandler() != null) {
-			getEurekaClient().registerHealthCheck(reg.getHealthCheckHandler());
+			reg.getEurekaClient().registerHealthCheck(reg.getHealthCheckHandler());
 		}
 	}
 	
 	private void maybeInitializeClient(EurekaRegistration reg) {
 		// force initialization of possibly scoped proxies
 		reg.getApplicationInfoManager().getInfo();
-		getEurekaClient().getApplications();
+		reg.getEurekaClient().getApplications();
 	}
 	
 	@Override
@@ -110,13 +76,13 @@ public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration
 
 		//TODO: howto deal with delete properly?
 		if ("RESET_OVERRIDE".equalsIgnoreCase(status)) {
-			getEurekaClient().cancelOverrideStatus(info);
+			registration.getEurekaClient().cancelOverrideStatus(info);
 			return;
 		}
 
 		//TODO: howto deal with status types across discovery systems?
 		InstanceInfo.InstanceStatus newStatus = InstanceInfo.InstanceStatus.toEnum(status);
-		getEurekaClient().setStatus(newStatus, info);
+		registration.getEurekaClient().setStatus(newStatus, info);
 	}
 
 	@Override
@@ -131,6 +97,9 @@ public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration
 	}
 
 	public void close() {
-		this.eurekaClient.shutdown();
+	}
+
+	public void close(EurekaRegistration registration) {
+		registration.getEurekaClient().shutdown();
 	}
 }

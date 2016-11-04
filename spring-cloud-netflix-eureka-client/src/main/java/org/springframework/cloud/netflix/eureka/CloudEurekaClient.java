@@ -18,12 +18,15 @@ package org.springframework.cloud.netflix.eureka;
 
 import java.lang.reflect.Field;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.netflix.appinfo.InstanceInfo;
 import com.netflix.appinfo.InstanceInfo.InstanceStatus;
 import com.netflix.discovery.shared.transport.EurekaHttpClient;
 import lombok.extern.apachecommons.CommonsLog;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.cloud.client.discovery.event.HeartbeatEvent;
 import org.springframework.context.ApplicationContext;
 
@@ -39,13 +42,14 @@ import org.springframework.util.ReflectionUtils;
  */
 @CommonsLog
 public class CloudEurekaClient extends DiscoveryClient {
+	private static final Log log = LogFactory.getLog(EurekaServiceRegistry.class);
 
 	private final AtomicLong cacheRefreshedCount = new AtomicLong(0);
 
 	private ApplicationContext context;
 	private Field eurekaTransportField;
 	private ApplicationInfoManager applicationInfoManager;
-	private EurekaHttpClient eurekaHttpClient;
+	private AtomicReference<EurekaHttpClient> eurekaHttpClient = new AtomicReference<>();
 
 	public CloudEurekaClient(ApplicationInfoManager applicationInfoManager,
 							 EurekaClientConfig config, ApplicationContext context) {
@@ -63,22 +67,26 @@ public class CloudEurekaClient extends DiscoveryClient {
 		ReflectionUtils.makeAccessible(this.eurekaTransportField);
 	}
 
+	public ApplicationInfoManager getApplicationInfoManager() {
+		return applicationInfoManager;
+	}
+
 	public void cancelOverrideStatus(InstanceInfo info) {
 		getEurekaHttpClient().deleteStatusOverride(info.getAppName(), info.getId(), info);
 	}
 
 	EurekaHttpClient getEurekaHttpClient() {
-		if (eurekaHttpClient == null) {
+		if (this.eurekaHttpClient.get() == null) {
 			try {
 				Object eurekaTransport = this.eurekaTransportField.get(this);
 				Field registrationClientField = ReflectionUtils.findField(eurekaTransport.getClass(), "registrationClient");
 				ReflectionUtils.makeAccessible(registrationClientField);
-				eurekaHttpClient = (EurekaHttpClient) registrationClientField.get(eurekaTransport);
+				this.eurekaHttpClient.compareAndSet(null, (EurekaHttpClient) registrationClientField.get(eurekaTransport));
 			} catch (IllegalAccessException e) {
-				e.printStackTrace();
+				log.error("error getting EurekaHttpClient", e);
 			}
 		}
-		return eurekaHttpClient;
+		return this.eurekaHttpClient.get();
 	}
 
 	public void setStatus(InstanceStatus newStatus, InstanceInfo info) {
