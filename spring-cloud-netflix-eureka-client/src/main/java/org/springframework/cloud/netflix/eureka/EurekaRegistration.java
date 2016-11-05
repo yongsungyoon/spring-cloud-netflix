@@ -17,16 +17,21 @@
 
 package org.springframework.cloud.netflix.eureka;
 
-import com.netflix.appinfo.ApplicationInfoManager;
-import com.netflix.appinfo.HealthCheckHandler;
-import com.netflix.discovery.EurekaClient;
+import java.util.concurrent.atomic.AtomicReference;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.aop.framework.Advised;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.cloud.client.serviceregistry.Registration;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.util.Assert;
 
-import java.util.concurrent.atomic.AtomicReference;
+import com.netflix.appinfo.ApplicationInfoManager;
+import com.netflix.appinfo.HealthCheckHandler;
+import com.netflix.appinfo.InstanceInfo;
+import com.netflix.discovery.EurekaClient;
+import com.netflix.discovery.EurekaClientConfig;
 
 /**
  * @author Spencer Gibb
@@ -40,11 +45,67 @@ public class EurekaRegistration implements Registration {
 	private final ApplicationInfoManager applicationInfoManager;
 	private HealthCheckHandler healthCheckHandler;
 
-	public EurekaRegistration(EurekaClient eurekaClient, CloudEurekaInstanceConfig instanceConfig, ApplicationInfoManager applicationInfoManager, HealthCheckHandler healthCheckHandler) {
+	private EurekaRegistration(CloudEurekaInstanceConfig instanceConfig, EurekaClient eurekaClient, ApplicationInfoManager applicationInfoManager, HealthCheckHandler healthCheckHandler) {
 		this.eurekaClient = eurekaClient;
 		this.instanceConfig = instanceConfig;
 		this.applicationInfoManager = applicationInfoManager;
 		this.healthCheckHandler = healthCheckHandler;
+	}
+
+	public static Builder builder(CloudEurekaInstanceConfig instanceConfig) {
+		return new Builder(instanceConfig);
+	}
+
+	public static class Builder {
+		private final CloudEurekaInstanceConfig instanceConfig;
+		private ApplicationInfoManager applicationInfoManager;
+		private EurekaClient eurekaClient;
+		private HealthCheckHandler healthCheckHandler;
+
+		private EurekaClientConfig clientConfig;
+		private ApplicationEventPublisher publisher;
+
+		Builder(CloudEurekaInstanceConfig instanceConfig) {
+			this.instanceConfig = instanceConfig;
+		}
+
+		public Builder with(ApplicationInfoManager applicationInfoManager) {
+			this.applicationInfoManager = applicationInfoManager;
+			return this;
+		}
+
+		public Builder with(EurekaClient eurekaClient) {
+			this.eurekaClient = eurekaClient;
+			return this;
+		}
+
+		public Builder with(HealthCheckHandler healthCheckHandler) {
+			this.healthCheckHandler = healthCheckHandler;
+			return this;
+		}
+
+		public Builder with(EurekaClientConfig clientConfig, ApplicationEventPublisher publisher) {
+			this.clientConfig = clientConfig;
+			this.publisher = publisher;
+			return this;
+		}
+
+		public EurekaRegistration build() {
+			Assert.notNull(instanceConfig, "instanceConfig may not be null");
+
+			if (this.applicationInfoManager == null) {
+				InstanceInfo instanceInfo = new InstanceInfoFactory().create(this.instanceConfig);
+				this.applicationInfoManager = new ApplicationInfoManager(this.instanceConfig, instanceInfo);
+			}
+			if (this.eurekaClient == null) {
+				Assert.notNull(this.clientConfig, "if eurekaClient is null, EurekaClientConfig may not be null");
+				Assert.notNull(this.publisher, "if eurekaClient is null, ApplicationEventPublisher may not be null");
+
+				this.eurekaClient = new CloudEurekaClient(this.applicationInfoManager, this.clientConfig, this.publisher);
+			}
+			return new EurekaRegistration(instanceConfig, eurekaClient, applicationInfoManager, healthCheckHandler);
+		}
+
 	}
 
 	public CloudEurekaClient getEurekaClient() {

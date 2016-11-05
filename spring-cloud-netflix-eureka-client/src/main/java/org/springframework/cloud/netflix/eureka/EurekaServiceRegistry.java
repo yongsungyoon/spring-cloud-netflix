@@ -67,6 +67,9 @@ public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration
 			}
 
 			reg.getApplicationInfoManager().setInstanceStatus(InstanceInfo.InstanceStatus.DOWN);
+
+			//TODO: on deregister or on context shutdown
+			reg.getEurekaClient().shutdown();
 		}
 	}
 
@@ -99,7 +102,4 @@ public class EurekaServiceRegistry implements ServiceRegistry<EurekaRegistration
 	public void close() {
 	}
 
-	public void close(EurekaRegistration registration) {
-		registration.getEurekaClient().shutdown();
-	}
 }
