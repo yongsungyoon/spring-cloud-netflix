@@ -101,10 +101,7 @@ public class RibbonLoadBalancedRetryPolicy implements LoadBalancedRetryPolicy {
 
 	@Override
 	public void registerThrowable(LoadBalancedRetryContext context, Throwable throwable) {
-		//if this is a circuit tripping exception then notify the load balancer
-		if (lbContext.getRetryHandler().isCircuitTrippingException(throwable)) {
-			updateServerInstanceStats(context);
-		}
+		updateServerInstanceStats(context, throwable);
 		
 		//Check if we need to ask the load balancer for a new server.
 		//Do this before we increment the counters because the first call to this method
@@ -129,16 +126,23 @@ public class RibbonLoadBalancedRetryPolicy implements LoadBalancedRetryPolicy {
 
 	}
 	
-	private void updateServerInstanceStats(LoadBalancedRetryContext context) {
+	private void updateServerInstanceStats(LoadBalancedRetryContext context, Throwable throwable) {
 		ServiceInstance serviceInstance = context.getServiceInstance();
 		if (serviceInstance instanceof RibbonServer) {
 			Server lbServer = ((RibbonServer)serviceInstance).getServer();
 			ServerStats serverStats = lbContext.getServerStats(lbServer);
-			serverStats.incrementSuccessiveConnectionFailureCount();
-			serverStats.addToFailureCount();    				
-			LOGGER.debug(lbServer.getHostPort() + " RetryCount: " + context.getRetryCount() 
-				+ " Successive Failures: " + serverStats.getSuccessiveConnectionFailureCount() 
-				+ " CircuitBreakerTripped:" + serverStats.isCircuitBreakerTripped());
+
+			//if this is a circuit tripping exception then increase connection failure counts.
+			if (lbContext.getRetryHandler().isCircuitTrippingException(throwable)) {
+				serverStats.incrementSuccessiveConnectionFailureCount();
+				serverStats.addToFailureCount();
+			} else {
+				serverStats.clearSuccessiveConnectionFailureCount();
+			}
+
+			LOGGER.debug(lbServer.getHostPort() + " RetryCount: " + context.getRetryCount()
+					+ " Successive Failures: " + serverStats.getSuccessiveConnectionFailureCount()
+					+ " CircuitBreakerTripped:" + serverStats.isCircuitBreakerTripped());
 		}
 	}
 
