@@ -15,8 +15,9 @@
  */
 package org.springframework.cloud.netflix.ribbon.apache;
 
-import java.io.IOException;
 import java.net.URI;
+
+import com.netflix.loadbalancer.ServerStats;
 import org.apache.commons.lang.BooleanUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.config.RequestConfig;
@@ -31,7 +32,7 @@ import org.springframework.cloud.client.loadbalancer.LoadBalancedRetryPolicyFact
 import org.springframework.cloud.client.loadbalancer.RibbonRecoveryCallback;
 import org.springframework.cloud.client.loadbalancer.ServiceInstanceChooser;
 import org.springframework.cloud.client.loadbalancer.InterceptorRetryPolicy;
-import org.springframework.cloud.netflix.ribbon.RibbonLoadBalancerClient;
+import org.springframework.cloud.netflix.ribbon.RibbonLoadBalancerClient.RibbonServer;
 import org.springframework.cloud.netflix.ribbon.ServerIntrospector;
 import org.springframework.cloud.netflix.ribbon.support.ContextAwareRequest;
 import org.springframework.http.HttpRequest;
@@ -45,7 +46,6 @@ import org.springframework.retry.policy.NeverRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import com.netflix.client.ClientException;
 import com.netflix.client.RequestSpecificRetryHandler;
 import com.netflix.client.RetryHandler;
 import com.netflix.client.config.CommonClientConfigKey;
@@ -123,6 +123,7 @@ public class RetryableRibbonLoadBalancingHttpClient extends RibbonLoadBalancingH
 				//on retries the policy will choose the server and set it in the context
 				//extract the server and update the request being made
 				RibbonApacheHttpRequest newRequest = request;
+				RibbonServer ribbonServer = null;
 				if(context instanceof LoadBalancedRetryContext) {
 					ServiceInstance service = ((LoadBalancedRetryContext)context).getServiceInstance();
 					validateServiceInstance(service);
@@ -132,6 +133,9 @@ public class RetryableRibbonLoadBalancingHttpClient extends RibbonLoadBalancingH
 							.port(service.getPort()).path(newRequest.getURI().getPath())
 							.query(newRequest.getURI().getQuery()).fragment(newRequest.getURI().getFragment())
 							.build().encode().toUri());
+					if (service instanceof RibbonServer) {
+						ribbonServer = (RibbonServer)service;
+					}
 				}
 				newRequest = getSecureRequest(newRequest, configOverride);
 				HttpUriRequest httpUriRequest = newRequest.toRequest(requestConfig);
@@ -140,6 +144,10 @@ public class RetryableRibbonLoadBalancingHttpClient extends RibbonLoadBalancingH
 					throw new HttpClientStatusCodeException(RetryableRibbonLoadBalancingHttpClient.this.clientName,
 							httpResponse, HttpClientUtils.createEntity(httpResponse), httpUriRequest.getURI());
 				}
+
+				// If code reaches here, we can assume that there was no connection error.
+				// So we should update ServerStats for the chosen instance.
+				updateServerStatsForSuccess(ribbonServer);
 				return new RibbonApacheHttpResponse(httpResponse, httpUriRequest.getURI());
 			}
 		};
@@ -151,12 +159,20 @@ public class RetryableRibbonLoadBalancingHttpClient extends RibbonLoadBalancingH
  		};
 		return this.executeWithRetry(request, retryPolicy, retryCallback, recoveryCallback);
 	}
-	
+
+	private void updateServerStatsForSuccess(RibbonServer ribbonServer) {
+		if (ribbonServer != null) {
+			Server lbServer = ribbonServer.getServer();
+			ServerStats serverStats = RetryableRibbonLoadBalancingHttpClient.this.getServerStats(lbServer);
+			serverStats.clearSuccessiveConnectionFailureCount();
+		}
+	}
+
 	@Override
 	public boolean isClientRetryable(ContextAwareRequest request) {
 		return request!= null && isRequestRetryable(request);
 	}
-	
+
 	private boolean isRequestRetryable(ContextAwareRequest request) {
 		return request.getContext() == null ? true :
 			BooleanUtils.toBooleanDefaultIfNull(request.getContext().getRetryable(), true);
